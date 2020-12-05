@@ -1,29 +1,39 @@
 <template>
   <div class="vue-gpickr">
+    <slot name="controls-wrapper"></slot>
     <color-picker v-model="currentColor" :preset-colors="null" />
-
-    <div class="vue-gpickr-inner-container">
-      <div class="vue-gpickr-preview-container">
-        <div class="vue-gpickr-preview" :style="previewStyle"></div>
-      </div>
-
+    <div class="vue-gpickr-inner-container" :style="`--bgStyle:${previewStyle.background}`">
+      <slot name="preview-container"></slot>
       <div class="vue-gpickr-stops-container" ref="stopsContainer">
         <div class="vue-gpickr-stops-preview-container">
           <div class="vue-gpickr-stops-preview" :style="stopsPreviewStyle" @click.stop.prevent="addStop($event)"></div>
         </div>
-        <div
-          class="vue-gpickr-stop"
-          v-for="(stop, index) in stops"
-          :key="index"
-          :style="stopStyle(index)"
-          :class="{ active: index == currentStopIdx }"
-          @mousedown.stop="handleMouseDown(index, $event)"
-          @touchstart.stop="handleTouchstart(index, $event)"
-        >
+        <div v-if="isRadialGradient">
+          <div
+            class="vue-gpickr-stop"
+            v-for="(stop, index) in stops"
+            :key="index"
+            :style="stopStyle(index)"
+            :class="{ active: index == currentStopIdx }"
+            @mousedown.stop="handleMouseDown(index, $event)"
+            @touchstart.stop="handleTouchstart(index, $event)"
+          >
+          </div>
+        </div>
+        <div v-else>
+          <div
+            class="vue-gpickr-stop"
+            v-for="(stop, index) in stops"
+            :key="index"
+            :style="stopStyle(index)"
+            :class="{ active: index == currentStopIdx }"
+            @mousedown.stop="handleMouseDown(index, $event)"
+            @touchstart.stop="handleTouchstart(index, $event)"
+          >
+          </div>
         </div>
       </div>
-
-      <div class="vue-gpickr-controls-container">
+      <div class="vue-gpickr-controls-container" v-if="!isRadialGradient && angle !== null">
         <div class="vue-gpickr-slider-container">
           <input type="range" min="0" max="360" step="1" v-model="angle" />
           <div class="label">Angle</div>
@@ -33,6 +43,7 @@
           <div class="label">Deg&deg;</div>
         </div>
       </div>
+      <slot name="custom-container"></slot>
     </div>
   </div>
 </template>
@@ -40,6 +51,7 @@
 <script>
 import { Sketch } from "vue-color";
 import LinearGradient from './LinearGradient';
+import RadialGradient from "./RadialGradient";
 
 const COLOR = 0;
 const POSITION = 1;
@@ -51,8 +63,12 @@ export default {
   },
   props: {
     value: {
-      type: LinearGradient,
+      type: Object,
       default: () => new LinearGradient()
+    },
+    isRadialGradient: {
+      type: Boolean,
+      default: () => false
     }
   },
   data() {
@@ -67,9 +83,10 @@ export default {
   computed: {
     angle: {
       get() {
-        return this.value.angle;
+        return !this.isRadialGradient ? this.value.angle : null;
       },
       set(val) {
+        if (this.isRadialGradient) return
         let degrees = parseInt(val, 10) || 0;
         if (degrees < 0) {
           degrees = 0;
@@ -96,7 +113,11 @@ export default {
       },
       set(val) {
         this.stops[this.currentStopIdx][COLOR] = val.hex8;
-        this.emitInput(this.angle, this.stops);
+        if (this.isRadialGradient) {
+          this.emitInput(null, this.stops);
+        } else {
+          this.emitInput(this.angle, this.stops);
+        }
       }
     },
     orderedStops() {
@@ -105,11 +126,21 @@ export default {
   },
   methods: {
     emitInput(angle, stops) {
-      this.$emit('input', new LinearGradient({ angle, stops }));
+      if (this.isRadialGradient) {
+        // console.log('径向渐变', new RadialGradient({ stops }));
+        this.$emit('input', new RadialGradient({ stops }));
+      } else {
+        // console.log('线性渐变', new LinearGradient({ angle, stops }));
+        this.$emit('input', new LinearGradient({ angle, stops }));
+      }
     },
     getGradientString(angle) {
       const stops = this.orderedStops.map(stop => `${stop[COLOR].toString()} ${stop[POSITION] * 100}%`).join(',');
-      return `linear-gradient(${angle}deg, ${stops})`;
+      if (this.isRadialGradient) {
+        return `radial-gradient(${stops})`;
+      } else {
+        return `linear-gradient(${angle}deg, ${stops})`;
+      }
     },
     setCurrentStopIdx(index) {
       this.currentStopIdx = index;
@@ -123,7 +154,11 @@ export default {
       const index = this.stops.length;
       this.stops.push([this.currentColor, position]);
       this.setCurrentStopIdx(index);
-      this.emitInput(this.angle, this.stops);
+      if (this.isRadialGradient) {
+        this.emitInput(null, this.stops);
+      } else {
+        this.emitInput(this.angle, this.stops);
+      }
     },
     removeCurrentStop() {
       this.stops.splice(this.currentStopIdx, 1);
@@ -131,7 +166,11 @@ export default {
         this.setCurrentStopIdx(this.currentStopIdx - 1);
       }
       this.unbindEventListeners();
-      this.emitInput(this.angle, this.stops);
+      if (this.isRadialGradient) {
+        this.emitInput(null, this.stops);
+      } else {
+        this.emitInput(this.angle, this.stops);
+      }
     },
     setContainerBoundingClientRectangle() {
       this.containerBoundingClientRectangle = this.$refs.stopsContainer.getBoundingClientRect();
@@ -167,7 +206,11 @@ export default {
       const previousPosition = this.stops[this.currentStopIdx][POSITION];
       this.stops[this.currentStopIdx][POSITION] = position;
       if (previousPosition != position) {
+        if (this.isRadialGradient) {
+        this.emitInput(null, this.stops);
+        } else {
         this.emitInput(this.angle, this.stops);
+        }
       }
     },
     handleMouseDown (index) {
@@ -201,11 +244,12 @@ export default {
 };
 </script>
 
-<style lang="scss" scoped>
+<style lang="less" scoped>
 ::v-deep {
   .vc-sketch {
     box-shadow: none;
     padding: 10px;
+    padding-bottom: 0;
     .vc-sketch-presets {
       display: none;
     }
@@ -226,28 +270,14 @@ export default {
 .vue-gpickr {
   position: relative;
   display: inline-flex;
-  flex-direction: row;
+  flex-direction: column;
   background: #FFF;
   border-radius: 4px;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, .15), 0 8px 16px rgba(0, 0, 0, .15);
   .vue-gpickr-inner-container {
     padding: 10px;
-    padding-left: 0;
+    padding-top: 0;
     user-select: none;
-    .vue-gpickr-preview-container {
-      width: 200px;
-      height: 150px;
-      background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAMElEQVQ4T2N89uzZfwY8QFJSEp80A+OoAcMiDP7//483HTx//hx/Ohg1gIFx6IcBALl+VXknOCvFAAAAAElFTkSuQmCC);
-      background-size: 10px;
-      position: relative;
-      .vue-gpickr-preview {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        right: 0;
-      }
-    }
     .vue-gpickr-stops-container {
       position: relative;
       .vue-gpickr-stops-preview-container {
